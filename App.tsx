@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  Alert, FlatList, PermissionsAndroid, Platform,
+  Alert, FlatList, PermissionsAndroid, Platform, TextInput,
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -9,13 +9,14 @@ import Geolocation from '@react-native-community/geolocation';
 import { accelerometer, SensorTypes, setUpdateIntervalForType } from 'react-native-sensors';
 import { getAllWorkouts, getWorkoutsByDate, getStats, insertWorkout, deleteWorkout, Workout } from './database';
 import { GPSIMUFusion } from './kalman';
+import { getSettings, saveSettings } from './settings';
 
 const Tab = createBottomTabNavigator();
 
 type WorkoutType = 'walking' | 'cycling';
 
 const MET_MAP = { walking: 3.8, cycling: 7.5 };
-const STEP_LENGTH = { walking: 0.75, cycling: 0 }; // meters per step/paddle
+const STEP_LENGTH = { walking: 0.75, cycling: 0 };
 
 function formatDuration(s: number): string {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
@@ -72,12 +73,11 @@ async function requestLocation(): Promise<boolean> {
   return true;
 }
 
-// ─── Home ───────────────────────────────────────────────────────────────────
+// ─── Home ─────────────────────────────────────────────────────────────────
 function HomeScreen() {
   const [stats, setStats] = useState({ totalDuration:0, totalDistance:0, totalCalories:0, totalSteps:0, workoutCount:0 });
   const today = new Date().toISOString().split('T')[0];
   useEffect(() => { getStats(today).then(setStats); }, []);
-
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
@@ -104,14 +104,12 @@ function HomeScreen() {
   );
 }
 
-// ─── Record ───────────────────────────────────────────────────────────────
+// ─── Record ────────────────────────────────────────────────────────────────
 function RecordScreen() {
   const [workoutType, setWorkoutType] = useState<WorkoutType>('walking');
   const [duration, setDuration] = useState(0);
   const [gpsDist, setGpsDist] = useState(0);
-  const [stepDist, setStepDist] = useState(0);
   const [speed, setSpeed] = useState(0);
-  const [steps, setSteps] = useState(0);
   const [calories, setCalories] = useState(0);
   const [recording, setRecording] = useState(false);
   const [gpsQuality, setGpsQuality] = useState<'off'|'good'|'bad'>('off');
@@ -127,6 +125,7 @@ function RecordScreen() {
   const kfRef = useRef(new GPSIMUFusion());
   const accDistRef = useRef(0);
   const stepsRef = useRef(0);
+  const weightRef = useRef(70);
 
   useEffect(() => {
     return () => {
@@ -140,6 +139,9 @@ function RecordScreen() {
     const ok = await requestLocation();
     if (!ok) { Alert.alert('权限不足','需要位置权限'); return; }
 
+    const weight = (await getSettings()).weight;
+    weightRef.current = weight;
+
     const now = new Date().toISOString();
     startRef.current = now;
     pointsRef.current = [];
@@ -150,8 +152,7 @@ function RecordScreen() {
     kfRef.current.reset();
 
     setRecording(true);
-    setDuration(0); setGpsDist(0); setStepDist(0);
-    setSpeed(0); setSteps(0); setCalories(0);
+    setDuration(0); setGpsDist(0); setSpeed(0); setCalories(0);
     setGpsPointCount(0); setGpsQuality('good');
 
     const met = MET_MAP[workoutType];
@@ -159,40 +160,34 @@ function RecordScreen() {
     timerRef.current = setInterval(() => {
       setDuration(d => {
         const n = d + 1;
-        if (n % 10 === 0) setCalories(Math.round(met * 70 * (n / 3600)));
+        if (n % 10 === 0) setCalories(Math.round(met * weightRef.current * (n / 3600)));
         return n;
       });
     }, 1000);
 
-    // Accelerometer — only for walking
     if (workoutType === 'walking') {
       setUpdateIntervalForType(SensorTypes.accelerometer, 50);
       accelSubRef.current = accelerometer.subscribe({
         next: ({ x, y, z }: any) => {
           const ts = Date.now();
           const mag = Math.sqrt(x*x + y*y + z*z);
-          const newSteps = stepDetectorRef.current.add(mag, ts);
-          if (newSteps > 0) {
-            stepsRef.current += newSteps;
+          const s = stepDetectorRef.current.add(mag, ts);
+          if (s > 0) {
+            stepsRef.current += s;
             accDistRef.current += STEP_LENGTH.walking;
-            setSteps(stepsRef.current);
-            setStepDist(accDistRef.current);
+            setGpsDist(accDistRef.current);
           }
         },
         error: (err: any) => console.warn('Accel err:', err),
       });
     }
 
-    // GPS
     watchRef.current = Geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude, speed: gpsSpeed, altitude, accuracy } = pos.coords;
         const ts = Date.now();
-
         kfRef.current.updateGPS(latitude, longitude, Math.max(gpsSpeed ?? 0, 0), altitude ?? 0, accuracy ?? 10);
-
         setGpsQuality(accuracy > 20 ? 'bad' : 'good');
-
         const prev = pointsRef.current[pointsRef.current.length - 1];
         if (prev) {
           const d = haversine(prev.lat, prev.lon, latitude, longitude);
@@ -217,12 +212,12 @@ function RecordScreen() {
     if (watchRef.current !== null) { Geolocation.clearWatch(watchRef.current); watchRef.current = null; }
     if (accelSubRef.current) { accelSubRef.current.unsubscribe(); accelSubRef.current = null; }
     setRecording(false); setGpsQuality('off');
-
     if (!startRef.current) return;
+
     const end = new Date().toISOString();
     const date = startRef.current.split('T')[0];
     const met = MET_MAP[workoutType];
-    const cals = Math.round(met * 70 * (duration / 3600));
+    const cals = Math.round(met * weightRef.current * (duration / 3600));
     const dist = (gpsQuality === 'good' && gpsPointCount > 3) ? accDistRef.current : 0;
     const avgSpeed = duration > 0 ? dist / duration : 0;
 
@@ -244,7 +239,8 @@ function RecordScreen() {
       `消耗：${cals}千卡\n` +
       `GPS点数：${gpsPointCount}`
     )).catch(() => Alert.alert('保存失败'));
-    setGpsDist(0); setStepDist(0); setSpeed(0); setSteps(0); setCalories(0); setGpsPointCount(0);
+
+    setGpsDist(0); setSpeed(0); setCalories(0); setGpsPointCount(0);
     startRef.current = '';
   }
 
@@ -277,9 +273,6 @@ function RecordScreen() {
         <View style={styles.statBox}><Text style={styles.statBoxValue}>{formatDist(gpsDist)}</Text><Text style={styles.statBoxLabel}>距离</Text></View>
         <View style={styles.statBox}><Text style={styles.statBoxValue}>{formatSpeedKmh(speed)}</Text><Text style={styles.statBoxLabel}>km/h</Text></View>
         <View style={styles.statBox}><Text style={styles.statBoxValue}>{calories}</Text><Text style={styles.statBoxLabel}>千卡</Text></View>
-        {workoutType === 'walking' && (
-          <View style={styles.statBox}><Text style={styles.statBoxValue}>{steps}</Text><Text style={styles.statBoxLabel}>步数</Text></View>
-        )}
       </View>
 
       <View style={styles.gpsStatusBar}>
@@ -310,7 +303,7 @@ function RecordScreen() {
   );
 }
 
-// ─── History ─────────────────────────────────────────────────────────────
+// ─── History ───────────────────────────────────────────────────────────────
 function HistoryScreen() {
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [dateQuery, setDateQuery] = useState('');
@@ -377,6 +370,74 @@ function HistoryScreen() {
   );
 }
 
+// ─── Profile / Settings ────────────────────────────────────────────────────
+function ProfileScreen() {
+  const [weight, setWeight] = useState('70');
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    getSettings().then(s => setWeight(String(s.weight)));
+  }, []);
+
+  async function handleSave() {
+    const w = parseFloat(weight);
+    if (isNaN(w) || w < 20 || w > 300) {
+      Alert.alert('体重输入无效','请输入20-300之间的体重值');
+      return;
+    }
+    await saveSettings({ weight: w });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+    Alert.alert('保存成功', `体重已设置为 ${w} kg\n下次运动将使用此体重计算卡路里`);
+  }
+
+  return (
+    <ScrollView style={styles.container}>
+      <View style={styles.profileHeader}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>🏃</Text>
+        </View>
+        <Text style={styles.profileName}>RunFit 用户</Text>
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>运动设置</Text>
+
+        <View style={styles.settingRow}>
+          <Text style={styles.settingLabel}>体重 (kg)</Text>
+          <TextInput
+            style={styles.settingInput}
+            value={weight}
+            onChangeText={setWeight}
+            keyboardType="decimal-pad"
+            placeholder="输入体重"
+          />
+        </View>
+
+        <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+          <Text style={styles.saveBtnText}>保存设置</Text>
+        </TouchableOpacity>
+
+        {saved && <Text style={styles.savedHint}>✓ 已保存</Text>}
+      </View>
+
+      <View style={styles.infoCard}>
+        <Text style={styles.infoTitle}>算法说明</Text>
+        <Text style={styles.infoText}>卡路里 = MET × 体重(kg) × 时间(小时)</Text>
+        <Text style={styles.infoText}>走路 MET = 3.8 | 骑行 MET = 7.5</Text>
+        <Text style={styles.infoText}>体重影响卡路里计算精度</Text>
+      </View>
+
+      <View style={styles.aboutCard}>
+        <Text style={styles.aboutTitle}>关于 RunFit</Text>
+        <Text style={styles.aboutText}>版本 1.5.0</Text>
+        <Text style={styles.aboutText}>纯 React Native 开发，无 Expo 依赖</Text>
+        <Text style={styles.aboutText}>GPS + IMU 传感器融合</Text>
+      </View>
+    </ScrollView>
+  );
+}
+
 // ─── App ───────────────────────────────────────────────────────────────
 export default function App() {
   return (
@@ -391,6 +452,7 @@ export default function App() {
         <Tab.Screen name="首页" component={HomeScreen} options={{ title:'RunFit' }} />
         <Tab.Screen name="记录" component={RecordScreen} options={{ title:'开始运动' }} />
         <Tab.Screen name="历史" component={HistoryScreen} options={{ title:'运动历史' }} />
+        <Tab.Screen name="设置" component={ProfileScreen} options={{ title:'个人设置' }} />
       </Tab.Navigator>
     </NavigationContainer>
   );
@@ -449,4 +511,23 @@ const styles = StyleSheet.create({
   cardStats: { flexDirection:'row', flexWrap:'wrap', gap:12 },
   statText: { fontSize:14, color:'#4CAF50', fontWeight:'600' },
   empty: { textAlign:'center', color:'#999', paddingVertical:40 },
+  // Profile
+  profileHeader: { backgroundColor:'#4CAF50', paddingVertical:32, paddingHorizontal:20, alignItems:'center' },
+  avatar: { width:72, height:72, borderRadius:36, backgroundColor:'#fff', justifyContent:'center', alignItems:'center', marginBottom:12 },
+  avatarText: { fontSize:36 },
+  profileName: { color:'#fff', fontSize:20, fontWeight:'bold' },
+  settingsCard: { backgroundColor:'#fff', margin:16, borderRadius:12, padding:16, elevation:2 },
+  settingsTitle: { fontSize:16, fontWeight:'bold', marginBottom:16 },
+  settingRow: { flexDirection:'row', alignItems:'center', marginBottom:16 },
+  settingLabel: { fontSize:15, color:'#333', width:80 },
+  settingInput: { flex:1, backgroundColor:'#f5f5f5', borderRadius:8, paddingHorizontal:14, paddingVertical:10, fontSize:15, textAlign:'center' },
+  saveBtn: { backgroundColor:'#4CAF50', paddingVertical:14, borderRadius:24, alignItems:'center' },
+  saveBtnText: { color:'#fff', fontSize:16, fontWeight:'bold' },
+  savedHint: { textAlign:'center', color:'#4CAF50', fontSize:13, marginTop:8 },
+  infoCard: { backgroundColor:'#fff', margin:16, marginTop:0, borderRadius:12, padding:16, elevation:2 },
+  infoTitle: { fontSize:14, fontWeight:'bold', marginBottom:8 },
+  infoText: { fontSize:13, color:'#666', lineHeight:22 },
+  aboutCard: { backgroundColor:'#fff', margin:16, marginTop:0, borderRadius:12, padding:16, elevation:2 },
+  aboutTitle: { fontSize:14, fontWeight:'bold', marginBottom:8 },
+  aboutText: { fontSize:13, color:'#666', lineHeight:22 },
 });

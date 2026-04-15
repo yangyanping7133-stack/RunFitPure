@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  TextInput, Alert, FlatList,
+  TextInput, Alert, FlatList, PermissionsAndroid, Platform,
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import Geolocation from '@react-native-community/geolocation';
 import { getAllWorkouts, getWorkoutsByDate, getStats, insertWorkout, deleteWorkout, Workout } from './database';
 
 const Tab = createBottomTabNavigator();
@@ -17,16 +18,18 @@ function formatDist(m: number | null): string {
   if (m == null || m === 0) return '-';
   return m < 1000 ? `${m.toFixed(0)}米` : `${(m/1000).toFixed(2)}公里`;
 }
+function formatSpeed(mps: number): string {
+  const kmh = mps * 3.6;
+  return kmh.toFixed(1);
+}
 
-const MET = 3.8; // 走路 MET 值
+const MET = 3.8;
 
 function HomeScreen() {
   const [stats, setStats] = useState({ totalDuration: 0, totalDistance: 0, totalCalories: 0, totalSteps: 0, workoutCount: 0 });
   const today = new Date().toISOString().split('T')[0];
 
-  useEffect(() => {
-    getStats(today).then(setStats);
-  }, []);
+  useEffect(() => { getStats(today).then(setStats); }, []);
 
   return (
     <ScrollView style={styles.container}>
@@ -54,43 +57,143 @@ function HomeScreen() {
   );
 }
 
+interface Point { lat: number; lon: number; ts: number; }
+
+function haversine(p1: Point, p2: Point): number {
+  const R = 6371000;
+  const dLat = ((p2.lat - p1.lat) * Math.PI) / 180;
+  const dLon = ((p2.lon - p1.lon) * Math.PI) / 180;
+  const a = Math.sin(dLat/2)**2
+    + Math.cos((p1.lat * Math.PI)/180) * Math.cos((p2.lat * Math.PI)/180)
+    * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+async function requestLocationPermission(): Promise<boolean> {
+  if (Platform.OS === 'android') {
+    try {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: '位置权限',
+          message: 'RunFit 需要获取您的位置来记录走路轨迹和计算距离',
+          buttonNeutral: '稍后',
+          buttonNegative: '取消',
+          buttonPositive: '确定',
+        },
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    } catch (err) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function RecordScreen() {
   const [duration, setDuration] = useState(0);
-  const [distance, setDistance] = useState('');
+  const [distance, setDistance] = useState(0);
+  const [speed, setSpeed] = useState(0);
+  const [calories, setCalories] = useState(0);
   const [steps, setSteps] = useState('');
   const [notes, setNotes] = useState('');
   const [recording, setRecording] = useState(false);
+  const [gpsStatus, setGpsStatus] = useState<'off' | 'on' | 'no-perm'>('off');
+  const [locationCount, setLocationCount] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const watchRef = useRef<number | null>(null);
   const startRef = useRef<string | null>(null);
+  const pointsRef = useRef<Point[]>([]);
+  const lastTsRef = useRef<number>(0);
+  const accumulatedDistRef = useRef(0);
 
-  function start() {
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (watchRef.current !== null) Geolocation.clearWatch(watchRef.current);
+    };
+  }, []);
+
+  async function start() {
+    const hasPermission = await requestLocationPermission();
+    if (!hasPermission) {
+      Alert.alert('权限不足', '需要位置权限才能记录轨迹，请在设置中开启');
+      return;
+    }
+
     startRef.current = new Date().toISOString();
+    pointsRef.current = [];
+    lastTsRef.current = Date.now();
+    accumulatedDistRef.current = 0;
+    setGpsStatus('on');
     setRecording(true);
     setDuration(0);
-    timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
+    setDistance(0);
+    setSpeed(0);
+    setCalories(0);
+    setLocationCount(0);
+
+    timerRef.current = setInterval(() => {
+      setDuration((d) => {
+        const next = d + 1;
+        if (next % 10 === 0) {
+          setCalories(Math.round(MET * 70 * (next / 3600)));
+        }
+        return next;
+      });
+    }, 1000);
+
+    watchRef.current = Geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const ts = Date.now();
+        const pt: Point = { lat: latitude, lon: longitude, ts };
+        const prev = pointsRef.current[pointsRef.current.length - 1];
+        if (prev) {
+          const d = haversine(prev, pt);
+          const dt = (ts - lastTsRef.current) / 1000;
+          if (dt > 0) {
+            accumulatedDistRef.current += d;
+            setDistance(accumulatedDistRef.current);
+            setSpeed(d / dt);
+          }
+        }
+        pointsRef.current.push(pt);
+        lastTsRef.current = ts;
+        setLocationCount((c) => c + 1);
+      },
+      (err) => console.warn('GPS error:', err),
+      { accuracy: 3, distanceFilter: 5, interval: 2000, fastestInterval: 1000 },
+    );
   }
 
   function stop() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (watchRef.current !== null) { Geolocation.clearWatch(watchRef.current); watchRef.current = null; }
     setRecording(false);
+    setGpsStatus('off');
     if (!startRef.current) return;
+
     const end = new Date().toISOString();
     const cals = Math.round(MET * 70 * (duration / 3600));
-    const distM = distance ? Math.round(parseFloat(distance) * 1000) : 0;
+    const distM = Math.round(accumulatedDistRef.current);
     const stepCount = steps ? parseInt(steps, 10) : 0;
+    const avgSpeed = duration > 0 ? accumulatedDistRef.current / duration : 0;
+
     insertWorkout({
       type: 'walking',
       duration,
       distance: distM || null,
-      calories: cals,
+      calories: cals || calories,
       date: startRef.current.split('T')[0],
       startTime: startRef.current,
       endTime: end,
       steps: stepCount || null,
       notes: notes || null,
-    }).then(() => Alert.alert('已保存', `时长：${formatDuration(duration)}\n距离：${distance || '0'}公里\n千卡：${cals}`))
-      .catch(() => Alert.alert('保存失败'));
-    setDistance(''); setSteps(''); setNotes('');
+    }).then(() => Alert.alert('已保存',
+      `时长：${formatDuration(duration)}\n距离：${formatDist(distM)}\n平均速度：${formatSpeed(avgSpeed)} km/h\n千卡：${cals}\nGPS点数：${locationCount}`
+    )).catch(() => Alert.alert('保存失败'));
+    setDistance(0); setSpeed(0); setCalories(0); setSteps(''); setNotes('');
     startRef.current = null;
   }
 
@@ -102,11 +205,31 @@ function RecordScreen() {
         <Text style={styles.timerLabel}>走路时长</Text>
       </View>
 
+      <View style={styles.statsRow}>
+        <View style={styles.statBox}>
+          <Text style={styles.statBoxValue}>{formatDist(distance)}</Text>
+          <Text style={styles.statBoxLabel}>距离</Text>
+        </View>
+        <View style={styles.statBox}>
+          <Text style={styles.statBoxValue}>{formatSpeed(speed)}</Text>
+          <Text style={styles.statBoxLabel}>m/s</Text>
+        </View>
+        <View style={styles.statBox}>
+          <Text style={styles.statBoxValue}>{calories}</Text>
+          <Text style={styles.statBoxLabel}>千卡</Text>
+        </View>
+      </View>
+
+      <View style={styles.gpsStatusBar}>
+        <Text style={[styles.gpsDot, gpsStatus === 'on' ? styles.gpsOn : gpsStatus === 'no-perm' ? styles.gpsNo : styles.gpsOff]} />
+        <Text style={styles.gpsText}>
+          {gpsStatus === 'on' ? `GPS定位中... (${locationCount}点)` : gpsStatus === 'no-perm' ? '无GPS权限' : 'GPS已关闭'}
+        </Text>
+      </View>
+
       {!recording && (
         <>
-          <TextInput style={styles.input} placeholder="走了多少公里？" keyboardType="decimal-pad"
-            value={distance} onChangeText={setDistance} />
-          <TextInput style={styles.input} placeholder="走了多少步？（可选）" keyboardType="number-pad"
+          <TextInput style={styles.input} placeholder="手动补充步数（可选）" keyboardType="number-pad"
             value={steps} onChangeText={setSteps} />
           <TextInput style={styles.notesInput} placeholder="备注（可选）" multiline
             value={notes} onChangeText={setNotes} />
@@ -164,6 +287,8 @@ function HistoryScreen() {
     ]);
   }
 
+  const avgSpeed = (w: Workout) => w.duration > 0 ? (w.distance ?? 0) / w.duration : 0;
+
   const grouped: { date: string; items: Workout[] }[] = [];
   workouts.forEach((w) => {
     const last = grouped[grouped.length - 1];
@@ -205,8 +330,8 @@ function HistoryScreen() {
                 <View style={styles.cardStats}>
                   <Text style={styles.statText}>⏱ {formatDuration(w.duration)}</Text>
                   <Text style={styles.statText}>📏 {formatDist(w.distance)}</Text>
+                  <Text style={styles.statText}>⚡ ${formatSpeed(avgSpeed(w))} km/h</Text>
                   <Text style={styles.statText}>🔥 {w.calories}千卡</Text>
-                  {w.steps != null && <Text style={styles.statText}>👟 {w.steps}步</Text>}
                 </View>
                 {w.notes && <Text style={styles.notes}>{w.notes}</Text>}
               </TouchableOpacity>
@@ -248,10 +373,20 @@ const styles = StyleSheet.create({
   statItem: { width: '50%', paddingVertical: 8 },
   statValue: { fontSize: 20, fontWeight: 'bold', color: '#4CAF50' },
   statLabel: { fontSize: 12, color: '#999', marginTop: 2 },
-  timerCard: { backgroundColor: '#fff', margin: 16, borderRadius: 16, padding: 40, alignItems: 'center', elevation: 2 },
-  timerEmoji: { fontSize: 56, marginBottom: 12 },
-  timerValue: { fontSize: 52, fontWeight: 'bold', color: '#4CAF50', fontVariant: ['tabular-nums'] },
+  timerCard: { backgroundColor: '#fff', margin: 16, borderRadius: 16, padding: 32, alignItems: 'center', elevation: 2 },
+  timerEmoji: { fontSize: 56, marginBottom: 8 },
+  timerValue: { fontSize: 48, fontWeight: 'bold', color: '#4CAF50', fontVariant: ['tabular-nums'] },
   timerLabel: { fontSize: 14, color: '#999', marginTop: 4 },
+  statsRow: { flexDirection: 'row', marginHorizontal: 16, gap: 12, marginBottom: 12 },
+  statBox: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 16, alignItems: 'center', elevation: 1 },
+  statBoxValue: { fontSize: 22, fontWeight: 'bold', color: '#333' },
+  statBoxLabel: { fontSize: 12, color: '#999', marginTop: 2 },
+  gpsStatusBar: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 12, backgroundColor: '#fff', borderRadius: 8, padding: 8 },
+  gpsDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
+  gpsOn: { backgroundColor: '#4CAF50' },
+  gpsOff: { backgroundColor: '#999' },
+  gpsNo: { backgroundColor: '#f44336' },
+  gpsText: { fontSize: 12, color: '#666' },
   input: { backgroundColor: '#fff', borderRadius: 12, padding: 14, fontSize: 15, marginHorizontal: 16, marginBottom: 10 },
   notesInput: { backgroundColor: '#fff', borderRadius: 12, padding: 14, fontSize: 15, marginHorizontal: 16, marginBottom: 16, minHeight: 60, textAlignVertical: 'top' },
   startBtn: { backgroundColor: '#4CAF50', marginHorizontal: 16, paddingVertical: 16, borderRadius: 30, alignItems: 'center', marginBottom: 20 },
@@ -274,7 +409,7 @@ const styles = StyleSheet.create({
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   walkLabel: { fontSize: 16, fontWeight: 'bold', color: '#333' },
   timeText: { fontSize: 13, color: '#999' },
-  cardStats: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  cardStats: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   statText: { fontSize: 14, color: '#4CAF50', fontWeight: '600' },
   notes: { fontSize: 12, color: '#999', marginTop: 6, fontStyle: 'italic' },
   empty: { textAlign: 'center', color: '#999', paddingVertical: 40 },

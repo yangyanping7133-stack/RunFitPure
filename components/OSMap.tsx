@@ -678,10 +678,11 @@ function buildHTML() {
     '#map{width:100%;height:100vh;}' +
     '.leaflet-container{background:#1a1a2e;}' +
     '</style></head><body>' +
-    '<div id=\"map\"></div><script src=\"file:///android_asset/leaflet.js\"></script><script>' +
-    'var map=L.map(\"map\",{zoomControl:false,attributionControl:false});' +
-    'var tileLayer=L.tileLayer(' + TILE_URL + ',{maxZoom:19,opacity:0.85});' +
-    'tileLayer.addTo(map);' +
+    '<div id="dbg" style="position:fixed;top:0;left:0;right:0;background:#000;color:#0f0;padding:2px 6px;font-size:10px;z-index:99999;font-family:monospace;">start</div>' +
+    '<div id="map"></div><script src="file:///android_asset/leaflet.js"></script><script>window.dbg=function(s){document.getElementById("dbg").innerHTML=s;};window.onerror=function(m){document.getElementById("dbg").innerHTML="ERR:"+m;};window.dbg("L");' +
+    'try{var map=L.map("map",{zoomControl:false,attributionControl:false});window.dbg("2");' +
+    'var tileLayer=L.tileLayer(' + TILE_URL + ',{maxZoom:19,opacity:0.85});window.dbg("3");' +
+    'tileLayer.addTo(map);window.dbg("4");tileLayer.on("load",function(){window.dbg("OK");});tileLayer.on("tileerror",function(e){window.dbg("TE:"+JSON.stringify(e));});}catch(e){window.dbg("E:"+e.message);};' +
     'var polyline=null;var currentMarker=null;var coords=[];' +
     'function clearAll(){if(polyline){map.removeLayer(polyline);polyline=null;}' +
     'if(currentMarker){map.removeLayer(currentMarker);currentMarker=null;}coords=[];}' +

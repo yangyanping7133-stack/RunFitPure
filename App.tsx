@@ -5,6 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Geolocation from '@react-native-community/geolocation';
 import { accelerometer, SensorTypes, setUpdateIntervalForType } from 'react-native-sensors';
 import { getAllWorkouts, getWorkoutsByDate, getStats, insertWorkout, deleteWorkout, Workout } from './database';
+import { HardwareStepCounterModule } from './HardwareStepCounter';
 import { GPSIMUFusion } from './kalman';
 import { getSettings, saveSettings } from './settings';
 import OSMap from './components/OSMap';
@@ -126,6 +127,8 @@ function RecordScreen() {
   const lastTsRef = useRef<number>(0);
   const stepDetRef = useRef(new StepDetector());
   const recentStepTimesRef = useRef<number[]>([]);
+  const lastStepTsRef = useRef<number>(0);
+  const stepSubRef = useRef<{remove:()=>void}| null>(null);
   const kfRef = useRef(new GPSIMUFusion());
   const accDistRef = useRef(0);
   const stepsRef = useRef(0);
@@ -164,6 +167,8 @@ function RecordScreen() {
     stepsRef.current = 0;
     stepDetRef.current.reset();
     recentStepTimesRef.current = [];
+    lastStepTsRef.current = 0;
+    if (stepSubRef.current) { stepSubRef.current.remove(); stepSubRef.current = null; }
     kfRef.current.reset();
 
     setRecording(true);
@@ -239,6 +244,8 @@ function RecordScreen() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current=null; }
     if (watchRef.current !== null) { Geolocation.clearWatch(watchRef.current); watchRef.current=null; }
     if (accelSubRef.current) { accelSubRef.current.unsubscribe(); accelSubRef.current=null; }
+    if (stepSubRef.current) { stepSubRef.current.remove(); stepSubRef.current = null; }
+    HardwareStepCounterModule.stop();
     setRecording(false); setGpsQ('off');
     if (!startRef.current) return;
     const end = new Date().toISOString();

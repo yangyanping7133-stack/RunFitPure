@@ -125,6 +125,7 @@ function RecordScreen() {
   const ptsRef = useRef<{lat:number;lon:number;ts:number}[]>([]);
   const lastTsRef = useRef<number>(0);
   const stepDetRef = useRef(new StepDetector());
+  const recentStepTimesRef = useRef<number[]>([]);
   const kfRef = useRef(new GPSIMUFusion());
   const accDistRef = useRef(0);
   const stepsRef = useRef(0);
@@ -157,10 +158,12 @@ function RecordScreen() {
     startRef.current = new Date().toISOString();
     ptsRef.current = [];
     coordsRef.current = [];
+    recentStepTimesRef.current = [];
     lastTsRef.current = Date.now();
     accDistRef.current = 0;
     stepsRef.current = 0;
     stepDetRef.current.reset();
+    recentStepTimesRef.current = [];
     kfRef.current.reset();
 
     setRecording(true);
@@ -187,7 +190,20 @@ function RecordScreen() {
           const ts = Date.now();
           const mag = Math.sqrt(x*x+y*y+z*z);
           const s = stepDetRef.current.add(mag, ts);
-          if (s > 0) { stepsRef.current+=s; accDistRef.current+=0.75; setDist(accDistRef.current); setSteps(stepsRef.current); }
+          if (s > 0) {
+            stepsRef.current+=s;
+            accDistRef.current+=0.75;
+            setDist(accDistRef.current);
+            setSteps(stepsRef.current);
+            recentStepTimesRef.current.push(ts);
+            if (recentStepTimesRef.current.length > 10) recentStepTimesRef.current.shift();
+            // Step-based speed: steps/sec * step_length
+            const times = recentStepTimesRef.current;
+            if (times.length >= 2) {
+              const span = (times[times.length-1] - times[0]) / 1000;
+              if (span > 0) setSpd((times.length-1) / span * 0.75);
+            }
+          }
         }, error: () => {},
       });
     }
@@ -202,7 +218,10 @@ function RecordScreen() {
           if (prev) {
             const d = haversine(prev.lat, prev.lon, latitude, longitude);
             const dt = (ts-lastTsRef.current)/1000;
-            if (dt>0 && d>0.3 && d<200) { accDistRef.current+=d; setDist(accDistRef.current); setSpd(d/dt); }
+            if (dt>0 && d>0.3 && d<200) {
+              // Only add GPS distance for cycling; walking uses step count
+              if (type !== "walking") { accDistRef.current+=d; setDist(accDistRef.current); setSpd(d/dt); }
+            }
           }
           const pt = { lat:latitude, lon:longitude, ts };
           ptsRef.current.push(pt);

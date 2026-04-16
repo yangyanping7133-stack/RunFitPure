@@ -2,7 +2,7 @@ import React, { useRef, forwardRef, useImperativeHandle } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-const YANDEX_JS_API = 'https://api-maps.yandex.ru/2.1.81/?apikey=&lang=ru_RU&mode=debug';
+const YANDEX_JS_API = 'https://api-maps.yandex.ru/2.1.81/?apikey=741e6cf5-8cb2-4ff9-b0ae-fa38d3c0a06d&lang=ru_RU';
 
 const buildHTML = () => {
   return `<!DOCTYPE html>

@@ -52,7 +52,7 @@ const OSMap = forwardRef((props, ref) => {
         zoomGesturesDisabled={false}
         rotateGesturesDisabled
         tiltGesturesDisabled
-        mapType="satellite"
+        mapType="vector"
       >
         {polylinePoints.length >= 2 && (
           <Polyline

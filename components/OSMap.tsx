@@ -666,7 +666,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 		}
 	}
 `;
-const TILE_URL = 'https://' + '{s}' + '.tile.openstreetmap.org/' + '{z}' + '/' + '{x}' + '/' + '{y}' + '.png';
+const TILE_URL = 'https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png';
 
 function buildHTML() {
   return (

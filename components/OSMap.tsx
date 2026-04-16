@@ -686,7 +686,7 @@ function buildHTML() {
     '.leaflet-container{background:#1a1a2e;}' +
     '</style></head><body>' +
     '<div id=\"map\"></div><script>' + LEAFLET_JS +
-    '<script>' +
+    '</script><script>' +
     'var map=L.map(\"map\",{zoomControl:false,attributionControl:false});' +
     'var tileLayer=L.tileLayer(' + TILE_URL + ',{maxZoom:19,opacity:0.85});' +
     'tileLayer.addTo(map);' +

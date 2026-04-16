@@ -116,6 +116,7 @@ function RecordScreen() {
   const [recording, setRecording] = useState(false);
   const [gpsQ, setGpsQ] = useState<'off'|'good'|'bad'>('off');
   const [gpsPts, setGpsPts] = useState(0);
+  const [mapMode, setMapMode] = useState<"follow"|"route">("follow");
   const [tmSpd, setTmSpd] = useState(String(D_SPEED));
   const [tmInc, setTmInc] = useState(String(D_INCLINE));
 
@@ -136,6 +137,8 @@ function RecordScreen() {
   const spdRef = useRef(D_SPEED);
   const incRef = useRef(D_INCLINE);
   const coordsRef = useRef<{lat:number;lon:number}[]>([]);
+  const mapModeRef = useRef<"follow"|"route">("follow");
+  const osMapRef = useRef<any>(null);
 
   const typeCN: Record<WorkoutType, string> = { walking:'走路', cycling:'骑行', treadmill:'跑步机' };
   const typeIcon: Record<WorkoutType, string> = { walking:'🚶', cycling:'🚴', treadmill:'🏃' };
@@ -161,6 +164,8 @@ function RecordScreen() {
     startRef.current = new Date().toISOString();
     ptsRef.current = [];
     coordsRef.current = [];
+    mapModeRef.current = "follow";
+    setMapMode("follow");
     recentStepTimesRef.current = [];
     lastTsRef.current = Date.now();
     accDistRef.current = 0;
@@ -237,6 +242,21 @@ function RecordScreen() {
         () => { setGpsQ('bad'); },
         { distanceFilter:1 },
       );
+    }
+  }
+
+  function toggleMapMode() {
+    if (mapModeRef.current === "follow") {
+      mapModeRef.current = "route";
+      setMapMode("route");
+      setTimeout(() => osMapRef.current?.fitBounds(), 100);
+    } else {
+      mapModeRef.current = "follow";
+      setMapMode("follow");
+      if (coordsRef.current.length > 0) {
+        const last = coordsRef.current[coordsRef.current.length - 1];
+        setTimeout(() => osMapRef.current?.setCenter(last.lat, last.lon, 17), 100);
+      }
     }
   }
 
@@ -338,7 +358,25 @@ function RecordScreen() {
 
       {/* Map */}
       {type!=='treadmill' && recording && currentCoords.length>0 && (
-        <OSMap points={currentCoords} currentLocation={currentCoords[currentCoords.length-1]} />
+        <OSMap
+          ref={osMapRef}
+          points={currentCoords}
+          currentLocation={currentCoords[currentCoords.length-1]}
+          mode={mapMode}
+        />
+      )}
+
+      {/* Map mode toggle */}
+      {type!=='treadmill' && recording && currentCoords.length > 0 && (
+        <TouchableOpacity
+          style={[C.mapToggleBtn, mapMode==='route' && C.mapToggleBtnActive]}
+          onPress={toggleMapMode}
+          activeOpacity={0.8}
+        >
+          <Text style={[C.mapToggleBtnTxt, mapMode==='route' && C.mapToggleBtnTxtActive]}>
+            {mapMode==='follow' ? '🗺️ 查看全路线' : '📍 回到定位'}
+          </Text>
+        </TouchableOpacity>
       )}
 
       {/* GPS indicator */}
@@ -628,6 +666,10 @@ const C = StyleSheet.create({
   recText: { color: '#FF3B30', fontSize: 16, fontWeight: '600' },
   stopBtn: { backgroundColor: '#FF3B30', paddingVertical: 18, paddingHorizontal: 64, borderRadius: 20 },
   stopBtnText: { color: '#fff', fontSize: 20, fontWeight: '800' },
+  mapToggleBtn: { marginHorizontal: 16, marginBottom: 12, backgroundColor: '#13131f', borderRadius: 14, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: '#1e1e2e' },
+  mapToggleBtnActive: { backgroundColor: '#00E5CC22', borderColor: '#00E5CC' },
+  mapToggleBtnTxt: { fontSize: 14, fontWeight: '600', color: '#888' },
+  mapToggleBtnTxtActive: { color: '#00E5CC' },
 
   // History search
   searchBar: { flexDirection: 'row', paddingHorizontal: 16, paddingBottom: 12, gap: 8 },

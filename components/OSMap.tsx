@@ -44,7 +44,7 @@ function setCenter(lat, lon, zoom) {
 function fitBounds() {
   if (coords.length === 0) return;
   if (coords.length === 1) { map.setView(coords[0], 16); return; }
-  var bounds = L.latLngBounds(coords.map(function(c) { return [c[0], c[1]]; }));
+  var bounds = L.latLngBounds(coords.map(function(c) { return [c[0], c[1]; }));
   map.fitBounds(bounds, { padding: [40, 40], maxZoom: 17 });
 }
 

@@ -777,13 +777,15 @@ const OSMap = forwardRef<OSMapHandle, Props>(function OSMap({ points, currentLoc
         source={{ html: buildHTML() }}
         scrollEnabled={false}
         zoomEnabled={true}
-        style={{ flex: 1, backgroundColor: '#1a1a2e' }}
+        style={{ flex: 1, flexGrow: 1, backgroundColor: '#1a1a2e' }}
         javaScriptEnabled
         domStorageEnabled
         originWhitelist={['*']}
         mixedContentMode="always"
         allowsInlineMediaPlayback
         mediaPlaybackRequiresUserAction={false}
+        onLoadEnd={() => console.log('WebView loaded')}
+        onError={() => console.log('WebView error')}
       />
     </View>
   );

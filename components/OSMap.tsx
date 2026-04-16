@@ -1,40 +1,74 @@
 import React, { useState, useRef, forwardRef, useImperativeHandle } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Yamap, Marker, Polyline } from 'react-native-yamap-plus';
 
 interface Point { lat: number; lon: number; }
 
 const OSMap = forwardRef((props, ref) => {
   const [coords, setCoords] = useState<Point[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const mapRef = useRef<any>(null);
 
   useImperativeHandle(ref, () => ({
     setCenter: (lat: number, lon: number, zoom?: number) => {
-      mapRef.current?.setCenter({ lat, lon }, zoom || 17, 0, 0, 300);
+      try {
+        mapRef.current?.setCenter({ lat, lon }, zoom || 17, 0, 0, 300);
+      } catch (e: any) {
+        setError('setCenter: ' + e.message);
+      }
     },
     fitBounds: () => {
-      if (coords.length === 0) return;
-      mapRef.current?.fitMarkers(coords, 300);
+      try {
+        if (coords.length === 0) return;
+        mapRef.current?.fitMarkers(coords, 300);
+      } catch (e: any) {
+        setError('fitBounds: ' + e.message);
+      }
     },
     addPoint: (lat: number, lon: number) => {
-      const newCoords = [...coords, { lat, lon }];
-      setCoords(newCoords);
-      // Animate to new point
-      setTimeout(() => {
-        mapRef.current?.fitMarkers(newCoords, 300);
-      }, 50);
+      try {
+        const newCoords = [...coords, { lat, lon }];
+        setCoords(newCoords);
+        setTimeout(() => {
+          try {
+            mapRef.current?.fitMarkers(newCoords, 300);
+          } catch (e: any) {
+            setError('addPoint.fit: ' + e.message);
+          }
+        }, 50);
+      } catch (e: any) {
+        setError('addPoint: ' + e.message);
+      }
     },
     updatePath: (newCoords: [number, number][]) => {
-      const mapped = newCoords.map(c => ({ lat: c[0], lon: c[1] }));
-      setCoords(mapped);
+      try {
+        const mapped = newCoords.map(c => ({ lat: c[0], lon: c[1] }));
+        setCoords(mapped);
+      } catch (e: any) {
+        setError('updatePath: ' + e.message);
+      }
     },
     clearAll: () => {
-      setCoords([]);
+      try {
+        setCoords([]);
+      } catch (e: any) {
+        setError('clearAll: ' + e.message);
+      }
     },
   }));
 
   const polylinePoints = coords.length >= 2 ? coords : [];
   const lastPoint = coords.length > 0 ? coords[coords.length - 1] : null;
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>Map Error: {error}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -53,6 +87,13 @@ const OSMap = forwardRef((props, ref) => {
         rotateGesturesDisabled
         tiltGesturesDisabled
         mapType="vector"
+        onMapReady={() => {
+          console.log('=== Yandex Map READY ===');
+          setError(null);
+        }}
+        onCameraMoveEnd={() => {
+          console.log('=== Camera move end ===');
+        }}
       >
         {polylinePoints.length >= 2 && (
           <Polyline
@@ -75,6 +116,8 @@ const OSMap = forwardRef((props, ref) => {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
+  errorBox: { flex: 1, backgroundColor: '#ffcccc', padding: 10, justifyContent: 'center', alignItems: 'center' },
+  errorText: { color: '#cc0000', fontSize: 12 },
 });
 
 export default OSMap;

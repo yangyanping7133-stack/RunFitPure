@@ -666,7 +666,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 		}
 	}
 `;
-const TILE_URL = 'https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png';
+const TILE_URL = 'https://core-sat.maps.yandex.net/tiles?l=sat&x={x}&y={y}&z={z}';
 
 function buildHTML() {
   return (
@@ -678,6 +678,7 @@ function buildHTML() {
     '#map{width:100%;height:100vh;}' +
     '.leaflet-container{background:#1a1a2e;}' +
     '</style></head><body>' +
+    '<div id="dbg" style="position:fixed;top:0;left:0;right:0;background:#000;color:#0f0;padding:2px 6px;font-size:10px;z-index:99999;font-family:monospace;">init</div>' +
     '<div id="dbg" style="position:fixed;top:0;left:0;right:0;background:#000;color:#0f0;padding:2px 6px;font-size:10px;z-index:99999;font-family:monospace;">loading</div>' +
     '<div id="map"></div><script src="file:///android_asset/leaflet.js" onload="dbg()"></script><script>' +
     'function dbg(){var s=document.getElementById("dbg");try{var map=L.map("map",{zoomControl:false,attributionControl:false});s.innerHTML="map ok";var tileLayer=L.tileLayer(' + TILE_URL + ',{maxZoom:19,opacity:0.85});tileLayer.on("load",function(){s.innerHTML="tiles ok";});tileLayer.on("tileerror",function(e){s.innerHTML="tile err";});tileLayer.addTo(map);s.innerHTML="added";}catch(e){s.innerHTML="err:"+e.message;}};' +

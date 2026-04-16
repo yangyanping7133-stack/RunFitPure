@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { LEAFLET_JS } from './leaflet-src';
 
 interface LatLon { lat: number; lon: number; }
 
@@ -679,7 +680,7 @@ function buildHTML() {
     '.leaflet-container{background:#1a1a2e;}' +
     '</style></head><body>' +
     '<div id="dbg" style="position:absolute;top:0;left:0;width:100%;background:#000;color:#0f0;padding:2px 6px;font-size:10px;z-index:99999;font-family:monospace;">loading</div>' +
-    '<div id="map"></div><script src="file:///android_asset/leaflet.js"></script><script>' +
+    '<div id="map"></div><script>// LEAFLET_INJECTED_BY_WEBVIEW</script>' +
     'var s=document.getElementById("dbg");' +
     'window.onerror=function(m){s.innerHTML="err:"+m;};' +
     'try{if(typeof L==="undefined"){s.innerHTML="L undef";}else{s.innerHTML="init map";var map=L.map("map",{zoomControl:false,attributionControl:false});s.innerHTML="map ok";var tileLayer=L.tileLayer(' + TILE_URL + ',{maxZoom:19,opacity:0.85});tileLayer.on("load",function(){s.innerHTML="tiles ok";});tileLayer.on("tileerror",function(e){s.innerHTML="te:"+JSON.stringify(e);});tileLayer.addTo(map);s.innerHTML="done";}}catch(e){s.innerHTML="e:"+e.message;};' +
@@ -768,6 +769,7 @@ const OSMap = forwardRef<OSMapHandle, Props>(function OSMap({ points, currentLoc
       <WebView
         ref={webviewRef}
         source={{ html: buildHTML() }}
+        injectedJavaScript={`try{window.LEAFLET_JS=LEAFLET_JS;}catch(e){document.getElementById("dbg").innerHTML=e.message;};true;`}
         scrollEnabled={false}
         zoomEnabled={true}
         style={{ flex: 1, flexGrow: 1, backgroundColor: '#1a1a2e' }}

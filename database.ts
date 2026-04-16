@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface Workout {
   id: number;
-  type: 'running' | 'walking' | 'cycling' | 'strength' | 'other';
+  type: 'running' | 'walking' | 'cycling' | 'strength' | 'other' | 'treadmill';
   duration: number;
   distance: number | null;
   calories: number;

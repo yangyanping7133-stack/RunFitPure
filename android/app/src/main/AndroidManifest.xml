@@ -16,7 +16,7 @@
       android:supportsRtl="true">
       <meta-data
         android:name="com.yandex.runtime.RapiApiKey"
-        android:value="741e6cf5-8cb2-4ff9-b0ae-fa38d3c0a06d" />
+        android:value="4c5382d8-7492-467f-967a-fd144b950b2c" />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"

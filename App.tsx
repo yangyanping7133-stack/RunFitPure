@@ -4,7 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Geolocation from '@react-native-community/geolocation';
 import { accelerometer, SensorTypes, setUpdateIntervalForType } from 'react-native-sensors';
-import { getAllWorkouts, getWorkoutsByDate, getStats, insertWorkout, deleteWorkout, Workout } from './database';
+import { getAllWorkouts, getWorkoutsByDate, getStats, insertWorkout, deleteWorkout, getWorkoutsWithCoords, Workout } from './database';
 import { HardwareStepCounterModule } from './HardwareStepCounter';
 import { GPSIMUFusion } from './kalman';
 import { getSettings, saveSettings } from './settings';
@@ -114,6 +114,9 @@ function RecordScreen() {
   const [cals, setCals] = useState(0);
   const [steps, setSteps] = useState(0);
   const [recording, setRecording] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyRoutes, setHistoryRoutes] = useState<Workout[]>([]);
+  const [historyCoords, setHistoryCoords] = useState<{lat:number;lon:number}[]|null>(null);
   const [gpsQ, setGpsQ] = useState<'off'|'good'|'bad'>('off');
   const [gpsPts, setGpsPts] = useState(0);
   const [tmSpd, setTmSpd] = useState(String(D_SPEED));
@@ -150,6 +153,10 @@ function RecordScreen() {
       if (accelSubRef.current) accelSubRef.current.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (showHistory) { getWorkoutsWithCoords().then(setHistoryRoutes); }
+  }, [showHistory]);
 
   async function start() {
     const ok = await reqLocation();
@@ -258,7 +265,7 @@ function RecordScreen() {
     const c = Math.round(met * wtRef.current * (dur/3600));
     const d = Math.round(dist);
     const avgSpd = dur>0 ? d/dur : 0;
-    insertWorkout({ type, duration:dur, distance:d, calories:c, date, startTime:startRef.current, endTime:end, steps:stepsRef.current||null, notes:null })
+    insertWorkout({ type, duration:dur, distance:d, calories:c, date, startTime:startRef.current, endTime:end, steps:stepsRef.current||null, notes:null, coords:coordsRef.current })
       .then(() => {
         let msg = `${typeIcon[type]} ${typeCN[type]}\n⏱ ${fmtDuration(dur)}\n📏 ${fmtDist(d)}\n⚡ ${fmtSpeed(avgSpd)} km/h\n🔥 ${c} 千卡`;
         if (type==='treadmill') msg += `\n🏔 坡度 ${incRef.current}% · 速度 ${spdRef.current} km/h`;
@@ -339,16 +346,23 @@ function RecordScreen() {
         </View>
       </View>
 
-      {/* Map */}
-      {type!=='treadmill' && recording && currentCoords.length>0 && (
+      {/* Map - show history OR recording route */}
+      {type!=='treadmill' && (
         <OSMap
           ref={osMapRef}
-          points={currentCoords}
-          currentLocation={currentCoords[currentCoords.length-1]}
+          points={historyCoords || (recording ? currentCoords : [])}
+          currentLocation={historyCoords ? (historyCoords[historyCoords.length-1] || null) : (recording && currentCoords.length>0 ? currentCoords[currentCoords.length-1] : null)}
         />
       )}
 
       
+
+      {/* History route button */}
+      {type!=='treadmill' && !recording && (
+        <TouchableOpacity style={C.historyBtn} onPress={() => setShowHistory(true)} activeOpacity={0.8}>
+          <Text style={C.historyBtnTxt}>🗺 查看历史路线</Text>
+        </TouchableOpacity>
+      )}
 
       {/* GPS indicator */}
       {type!=='treadmill' && (
@@ -379,6 +393,8 @@ function RecordScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+
     </ScrollView>
   );
 }
@@ -630,6 +646,14 @@ const C = StyleSheet.create({
 
   // Buttons
   bigBtn: { marginHorizontal: 16, paddingVertical: 18, borderRadius: 20, alignItems: 'center', marginBottom: 8 },
+  historyBtn: { marginHorizontal: 16, marginTop: 8, backgroundColor: '#13131f', borderRadius: 14, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: '#1e1e2e' },
+  historyBtnTxt: { fontSize: 14, fontWeight: '600', color: '#00E5CC' },
+  histOverlay: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(10,10,18,0.97)', zIndex: 100, paddingTop: 60 },
+  histHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginBottom: 16 },
+  histTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff', flex: 1 },
+  histClose: { fontSize: 24, color: '#888', padding: 8 },
+  histItem: { backgroundColor: '#13131f', marginHorizontal: 16, marginBottom: 12, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#1a1a2a' },
+  histEmpty: { textAlign: "center", color: "#555", fontSize: 14, marginTop: 60 },
   bigBtnText: { color: '#0a0a12', fontSize: 20, fontWeight: '800', letterSpacing: 0.5 },
   recSection: { alignItems: 'center', paddingTop: 8 },
   recIndicator: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 8 },

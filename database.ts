@@ -1,8 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+export interface LatLon {
+  lat: number;
+  lon: number;
+}
+
 export interface Workout {
   id: number;
-  type: 'running' | 'walking' | 'cycling' | 'strength' | 'other' | 'treadmill';
+  type: 'walking' | 'cycling' | 'treadmill';
   duration: number;
   distance: number | null;
   calories: number;
@@ -11,6 +16,7 @@ export interface Workout {
   endTime: string;
   steps: number | null;
   notes: string | null;
+  coords: LatLon[] | null;
 }
 
 const STORAGE_KEY = 'runfit_workouts';
@@ -49,6 +55,10 @@ export async function searchWorkouts(keyword: string): Promise<Workout[]> {
   return (await loadAll()).filter(
     (w) => w.notes?.toLowerCase().includes(kw) || w.type.includes(kw),
   );
+}
+
+export async function getWorkoutsWithCoords(): Promise<Workout[]> {
+  return (await loadAll()).filter((w) => w.coords && w.coords.length > 0);
 }
 
 export async function getStats(date: string) {

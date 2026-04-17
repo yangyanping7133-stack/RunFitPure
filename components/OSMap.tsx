@@ -1,114 +1,119 @@
-import React, { useState, useRef, forwardRef, useImperativeHandle } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Yamap, Marker, Polyline } from 'react-native-yamap-plus';
+import React, { useRef, forwardRef, useImperativeHandle } from 'react';
+import { View, StyleSheet } from 'react-native';
+import { WebView } from 'react-native-webview';
 
-interface Point { lat: number; lon: number; }
+const YANDEX_JS_KEY = '4774ab39-c691-43c8-8a1d-85d3ae9f915b';
+const YANDEX_JS_URL = `https://api-maps.yandex.ru/2.1.81/?apikey=${YANDEX_JS_KEY}&lang=ru_RU`;
+
+const buildHTML = () => {
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#1a1a2e;overflow:hidden;}
+#map{width:100%;height:100vh;position:relative;}
+#dbg{position:fixed;top:0;left:0;right:0;background:#000;color:#0f0;padding:2px 6px;font-size:10px;z-index:99999;font-family:monospace;}
+</style>
+</head>
+<body>
+<div id="dbg">loading</div>
+<div id="map"></div>
+<script src="${YANDEX_JS_URL}"></script>
+<script>
+var dbg=document.getElementById("dbg");
+window.onerror=function(m){dbg.innerHTML="err:"+m;};
+function init(){
+  dbg.innerHTML="ym loading";
+  try{
+    ymaps.ready(function(){
+      dbg.innerHTML="ym ready";
+      window._map=new ymaps.Map("map",{
+        center:[55.7558,37.6173],
+        zoom:15,
+        controls:[]
+      });
+      window._map.behaviors.disable('scrollZoom');
+      window._map.behaviors.disable('drag');
+      window._map.geoObjects.removeAll();
+      dbg.innerHTML="done";
+    });
+  }catch(e){dbg.innerHTML="e:"+e.message;}
+}
+if(typeof ymaps!=="undefined"){
+  init();
+}else{
+  dbg.innerHTML="ym undefined, waiting...";
+  window.ymReady=init;
+}
+</script>
+</body>
+</html>`;
+};
 
 const OSMap = forwardRef((props, ref) => {
-  const [coords, setCoords] = useState<Point[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const mapRef = useRef<any>(null);
+  const webviewRef = useRef<WebView>(null);
 
   useImperativeHandle(ref, () => ({
     setCenter: (lat: number, lon: number, zoom?: number) => {
-      try {
-        mapRef.current?.setCenter({ lat, lon }, zoom || 17, 0, 0, 300);
-      } catch (e: any) {
-        setError('setCenter: ' + e.message);
-      }
+      webviewRef.current?.injectJavaScript(
+        `if(window._map){window._map.setCenter([${lat},${lon}],${zoom||17});}true;`
+      );
     },
     fitBounds: () => {
-      try {
-        if (coords.length === 0) return;
-        mapRef.current?.fitMarkers(coords, 300);
-      } catch (e: any) {
-        setError('fitBounds: ' + e.message);
-      }
+      webviewRef.current?.injectJavaScript(
+        `if(window._bounds&&window._map){window._map.geoObjects.add(window._bounds);window._map.fitBounds(window._bounds.geometry.getBounds());}true;`
+      );
     },
     addPoint: (lat: number, lon: number) => {
-      try {
-        const newCoords = [...coords, { lat, lon }];
-        setCoords(newCoords);
-        setTimeout(() => {
-          try {
-            mapRef.current?.fitMarkers(newCoords, 300);
-          } catch (e: any) {
-            setError('addPoint.fit: ' + e.message);
-          }
-        }, 50);
-      } catch (e: any) {
-        setError('addPoint: ' + e.message);
-      }
+      webviewRef.current?.injectJavaScript(
+        `if(window._map){
+          var pt=[${lat},${lon}];
+          window._map.geoObjects.removeAll();
+          var m=new ymaps.Placemark(pt,{},{});
+          window._map.geoObjects.add(m);
+          window._map.setCenter(pt,17);
+        }true;`
+      );
     },
     updatePath: (newCoords: [number, number][]) => {
-      try {
-        const mapped = newCoords.map(c => ({ lat: c[0], lon: c[1] }));
-        setCoords(mapped);
-      } catch (e: any) {
-        setError('updatePath: ' + e.message);
+      if (newCoords.length === 0) {
+        webviewRef.current?.injectJavaScript(`if(window._map){window._map.geoObjects.removeAll();}true;`);
+        return;
       }
+      const lineCoords = newCoords.map(c => `[${c[0]},${c[1]}]`).join(',');
+      webviewRef.current?.injectJavaScript(
+        `if(window._map){
+          window._map.geoObjects.removeAll();
+          var line=new ymaps.Polyline([${lineCoords}],{},{strokeColor:'#00E5CC',strokeWidth:3});
+          window._map.geoObjects.add(line);
+          ${newCoords.length===1 ? `window._map.setCenter([${newCoords[0][0]},${newCoords[0][1]}],17);` : `if(window._map.geoObjects.get(0)){window._map.fitBounds(window._map.geoObjects.get(0).geometry.getBounds());}`}
+        }true;`
+      );
     },
     clearAll: () => {
-      try {
-        setCoords([]);
-      } catch (e: any) {
-        setError('clearAll: ' + e.message);
-      }
+      webviewRef.current?.injectJavaScript(`if(window._map){window._map.geoObjects.removeAll();}true;`);
     },
   }));
 
-  const polylinePoints = coords.length >= 2 ? coords : [];
-  const lastPoint = coords.length > 0 ? coords[coords.length - 1] : null;
-
-  if (error) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.errorBox}>
-          <Text style={styles.errorText}>Map Error: {error}</Text>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
-      <Yamap
-        ref={mapRef}
+      <WebView
+        ref={webviewRef as any}
+        source={{ html: buildHTML() }}
+        scrollEnabled={false}
+        zoomEnabled={true}
         style={styles.map}
-        initialRegion={{
-          lat: 55.7558,
-          lon: 37.6173,
-          zoom: 15,
-          azimuth: 0,
-          tilt: 0,
-        }}
-        scrollGesturesDisabled={false}
-        zoomGesturesDisabled={false}
-        rotateGesturesDisabled
-        tiltGesturesDisabled
-        mapType="vector"
-        onMapReady={() => {
-          console.log('=== Yandex Map READY ===');
-          setError(null);
-        }}
-        onCameraMoveEnd={() => {
-          console.log('=== Camera move end ===');
-        }}
-      >
-        {polylinePoints.length >= 2 && (
-          <Polyline
-            points={polylinePoints}
-            strokeColor="#00E5CC"
-            strokeWidth={3}
-          />
-        )}
-        {lastPoint && (
-          <Marker
-            point={lastPoint}
-            scale={1.5}
-          />
-        )}
-      </Yamap>
+        javaScriptEnabled
+        domStorageEnabled
+        originWhitelist={['*']}
+        mixedContentMode="always"
+        allowsInlineMediaPlayback
+        mediaPlaybackRequiresUserAction={false}
+        onLoadEnd={() => console.log('WebView loaded')}
+        onError={() => console.log('WebView error')}
+      />
     </View>
   );
 });
@@ -116,8 +121,6 @@ const OSMap = forwardRef((props, ref) => {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
-  errorBox: { flex: 1, backgroundColor: '#ffcccc', padding: 10, justifyContent: 'center', alignItems: 'center' },
-  errorText: { color: '#cc0000', fontSize: 12 },
 });
 
 export default OSMap;

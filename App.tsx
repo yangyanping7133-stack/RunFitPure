@@ -9,8 +9,6 @@ import { HardwareStepCounterModule } from './HardwareStepCounter';
 import { GPSIMUFusion } from './kalman';
 import { getSettings, saveSettings } from './settings';
 import OSMap from './components/OSMap';
-import {YamapInstance} from 'react-native-yamap-plus';
-YamapInstance.init('741e6cf5-8cb2-4ff9-b0ae-fa38d3c0a06d');
 
 const Tab = createBottomTabNavigator();
 type WorkoutType = 'walking' | 'cycling' | 'treadmill';

@@ -83,8 +83,8 @@ android {
         applicationId "com.runfitpure"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 11
-        versionName "2.1.11"
+        versionCode 12
+        versionName "2.1.12"
     }
     signingConfigs {
         debug {

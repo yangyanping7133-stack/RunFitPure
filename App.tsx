@@ -117,6 +117,7 @@ function RecordScreen() {
   const [showHistory, setShowHistory] = useState(false);
   const [historyRoutes, setHistoryRoutes] = useState<Workout[]>([]);
   const [historyCoords, setHistoryCoords] = useState<{lat:number;lon:number}[]|null>(null);
+  const [currentCoords, setCurrentCoords] = useState<{lat:number;lon:number}[]>([]);
   const [gpsQ, setGpsQ] = useState<'off'|'good'|'bad'>('off');
   const [gpsPts, setGpsPts] = useState(0);
   const [tmSpd, setTmSpd] = useState(String(D_SPEED));
@@ -147,9 +148,12 @@ function RecordScreen() {
   const typeColor = typeColors[type];
 
   useEffect(() => {
+    // Start GPS watch immediately when record screen mounts (non-treadmill modes)
+    if (type !== 'treadmill') {
+      startGpsWatch();
+    }
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (watchRef.current !== null) Geolocation.clearWatch(watchRef.current);
+      if (watchRef.current !== null) { Geolocation.clearWatch(watchRef.current); watchRef.current = null; }
       if (accelSubRef.current) accelSubRef.current.unsubscribe();
     };
   }, []);
@@ -157,6 +161,36 @@ function RecordScreen() {
   useEffect(() => {
     if (showHistory) { getWorkoutsWithCoords().then(setHistoryRoutes); }
   }, [showHistory]);
+
+  function startGpsWatch() {
+    if (watchRef.current !== null) return; // already watching
+    watchRef.current = Geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, speed:gpsSpd, altitude, accuracy } = pos.coords;
+        const ts = Date.now();
+        kfRef.current.updateGPS(latitude, longitude, Math.max(gpsSpd??0,0), altitude??0, accuracy??10);
+        setGpsQ(accuracy>20?'bad':'good');
+        // Only record during active recording
+        if (!recording) return;
+        const prev = ptsRef.current[ptsRef.current.length-1];
+        if (prev) {
+          const d = haversine(prev.lat, prev.lon, latitude, longitude);
+          const dt = (ts-lastTsRef.current)/1000;
+          if (dt>0 && d>0.3 && d<200) {
+            if (type !== 'walking') { accDistRef.current+=d; setDist(accDistRef.current); setSpd(d/dt); }
+          }
+        }
+        const pt = { lat:latitude, lon:longitude, ts };
+        ptsRef.current.push(pt);
+        coordsRef.current = [...(coordsRef.current||[]).slice(-199), { lat:latitude, lon:longitude }];
+        setCurrentCoords(c=>[...c.slice(-199), { lat:latitude, lon:longitude }]);
+        lastTsRef.current = ts;
+        setGpsPts(c=>c+1);
+      },
+      () => { setGpsQ('bad'); },
+      { distanceFilter: 1 },
+    );
+  }
 
   async function start() {
     const ok = await reqLocation();
@@ -181,7 +215,7 @@ function RecordScreen() {
 
     setRecording(true);
     setDur(0); setDist(0); setSpd(0); setCals(0); setSteps(0);
-    setGpsPts(0); setGpsQ('good');
+    setGpsPts(0); setGpsQ('good'); setCurrentCoords([]);
 
     timerRef.current = setInterval(() => {
       setDur(d => {
@@ -221,34 +255,9 @@ function RecordScreen() {
       });
     }
     if (type!=='treadmill') {
-      watchRef.current = Geolocation.watchPosition(
-        (pos) => {
-          const { latitude, longitude, speed:gpsSpd, altitude, accuracy } = pos.coords;
-          const ts = Date.now();
-          kfRef.current.updateGPS(latitude, longitude, Math.max(gpsSpd??0,0), altitude??0, accuracy??10);
-          setGpsQ(accuracy>20?'bad':'good');
-          const prev = ptsRef.current[ptsRef.current.length-1];
-          if (prev) {
-            const d = haversine(prev.lat, prev.lon, latitude, longitude);
-            const dt = (ts-lastTsRef.current)/1000;
-            if (dt>0 && d>0.3 && d<200) {
-              // Only add GPS distance for cycling; walking uses step count
-              if (type !== "walking") { accDistRef.current+=d; setDist(accDistRef.current); setSpd(d/dt); }
-            }
-          }
-          const pt = { lat:latitude, lon:longitude, ts };
-          ptsRef.current.push(pt);
-          coordsRef.current = [...coordsRef.current.slice(-199), { lat:latitude, lon:longitude }];
-          lastTsRef.current = ts;
-          setGpsPts(c=>c+1);
-        },
-        () => { setGpsQ('bad'); },
-        { distanceFilter:1 },
-      );
+      startGpsWatch();
     }
   }
-
-  
 
   function stop() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current=null; }
@@ -274,10 +283,9 @@ function RecordScreen() {
       }).catch(() => Alert.alert('保存失败'));
     setDist(0); setSpd(0); setCals(0); setSteps(0); setGpsPts(0);
     coordsRef.current = [];
+    setCurrentCoords([]);
     startRef.current = '';
   }
-
-  const currentCoords = coordsRef.current;
 
   return (
     <ScrollView style={C.container} contentContainerStyle={C.scrollContent} stickyHeaderIndices={[0]}>

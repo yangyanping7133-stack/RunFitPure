@@ -358,7 +358,7 @@ function RecordScreen() {
       
 
       {/* History route button */}
-      {type!=='treadmill' && !recording && (
+      {type!=='treadmill' && !recording && historyRoutes.length>0 && (
         <TouchableOpacity style={C.historyBtn} onPress={() => setShowHistory(true)} activeOpacity={0.8}>
           <Text style={C.historyBtnTxt}>🗺 查看历史路线</Text>
         </TouchableOpacity>
@@ -394,6 +394,63 @@ function RecordScreen() {
         </View>
       )}
 
+      {/* History overlay */}
+      {showHistory && (
+        <View style={C.histOverlay}>
+          <View style={C.histHeader}>
+            <Text style={C.histTitle}>选择历史路线</Text>
+            <TouchableOpacity onPress={() => { setShowHistory(false); setHistoryRoutes([]); }}>
+              <Text style={C.histClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {historyRoutes.length === 0 ? (
+            <Text style={C.histEmpty}>暂无路线记录</Text>
+          ) : (
+            <FlatList
+              data={historyRoutes}
+              keyExtractor={w => String(w.id)}
+              contentContainerStyle={{paddingBottom: 40, paddingHorizontal: 16}}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={C.histItem}
+                  onPress={() => {
+                    setHistoryCoords(item.coords || []);
+                    setShowHistory(false);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View style={{flexDirection:'row', alignItems:'center', justifyContent:'space-between'}}>
+                    <View style={{flexDirection:'row', alignItems:'center', gap:10}}>
+                      <Text style={{fontSize:24}}>{icon[item.type]||'🏃'}</Text>
+                      <View>
+                        <Text style={{fontSize:15, fontWeight:'700', color:'#fff'}}>{name[item.type]||item.type}</Text>
+                        <Text style={{fontSize:12, color:'#666', marginTop:2}}>
+                          {item.startTime.split('T')[1].substring(0,5)} · {item.coords?.length||0}个轨迹点
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={{alignItems:'flex-end'}}>
+                      <Text style={{fontSize:13, color:'#00E5CC', fontWeight:'600'}}>{fmtDist(item.distance||0)}</Text>
+                      <Text style={{fontSize:12, color:'#666'}}>{fmtDuration(item.duration)}</Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              )}
+            />
+          )}
+        </View>
+      )}
+
+      {/* Back button when viewing history */}
+      {historyCoords && !recording && (
+        <TouchableOpacity
+          style={C.backBtn}
+          onPress={() => setHistoryCoords(null)}
+          activeOpacity={0.8}
+        >
+          <Text style={C.backBtnTxt}>✕ 关闭历史路线</Text>
+        </TouchableOpacity>
+      )}
 
     </ScrollView>
   );
@@ -654,6 +711,8 @@ const C = StyleSheet.create({
   histClose: { fontSize: 24, color: '#888', padding: 8 },
   histItem: { backgroundColor: '#13131f', marginHorizontal: 16, marginBottom: 12, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#1a1a2a' },
   histEmpty: { textAlign: "center", color: "#555", fontSize: 14, marginTop: 60 },
+  backBtn: { marginHorizontal: 16, marginTop: 8, backgroundColor: '#1e1e2e', borderRadius: 14, paddingVertical: 10, alignItems: 'center' },
+  backBtnTxt: { fontSize: 14, fontWeight: '600', color: '#FF3B30' },
   bigBtnText: { color: '#0a0a12', fontSize: 20, fontWeight: '800', letterSpacing: 0.5 },
   recSection: { alignItems: 'center', paddingTop: 8 },
   recIndicator: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 8 },

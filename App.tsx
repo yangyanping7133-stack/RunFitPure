@@ -123,6 +123,7 @@ function RecordScreen() {
   const [tmSpd, setTmSpd] = useState(String(D_SPEED));
   const [tmInc, setTmInc] = useState(String(D_INCLINE));
 
+  const recordingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const watchRef = useRef<number | null>(null);
   const accelSubRef = useRef<{ unsubscribe: () => void } | null>(null);
@@ -171,8 +172,9 @@ function RecordScreen() {
       (pos) => {
         const { latitude, longitude, speed:gpsSpd, altitude, accuracy } = pos.coords;
         const ts = Date.now();
-        kfRef.current.updateGPS(latitude, longitude, Math.max(gpsSpd??0,0), altitude??0, accuracy??10);
-        setGpsQ(accuracy>20?'bad':'good');
+        const acc = accuracy ?? 50;
+        kfRef.current.updateGPS(latitude, longitude, Math.max(gpsSpd??0,0), altitude??0, acc);
+        setGpsQ(acc > 50 ? 'bad' : 'good');
 
         // Always update current location on map (even before recording starts)
         const loc = { lat: latitude, lon: longitude };
@@ -186,7 +188,7 @@ function RecordScreen() {
         });
 
         // Recording-only logic
-        if (!recording) return;
+        if (!recordingRef.current) return;
         const prev = ptsRef.current[ptsRef.current.length-1];
         if (prev) {
           const d = haversine(prev.lat, prev.lon, latitude, longitude);
@@ -228,6 +230,7 @@ function RecordScreen() {
     kfRef.current.reset();
 
     setRecording(true);
+    recordingRef.current = true;
     setDur(0); setDist(0); setSpd(0); setCals(0); setSteps(0);
     setGpsPts(0); setGpsQ('good'); setCurrentCoords([]);
 
@@ -279,7 +282,7 @@ function RecordScreen() {
     if (accelSubRef.current) { accelSubRef.current.unsubscribe(); accelSubRef.current=null; }
     if (stepSubRef.current) { stepSubRef.current.remove(); stepSubRef.current = null; }
     HardwareStepCounterModule.stop();
-    setRecording(false); setGpsQ('off');
+    setRecording(false); recordingRef.current = false; setGpsQ('off');
     if (!startRef.current) return;
     const end = new Date().toISOString();
     const date = startRef.current.split('T')[0];
@@ -297,6 +300,7 @@ function RecordScreen() {
       }).catch(() => Alert.alert('保存失败'));
     setDist(0); setSpd(0); setCals(0); setSteps(0); setGpsPts(0);
     coordsRef.current = [];
+    ptsRef.current = [];
     setCurrentCoords([]);
     startRef.current = '';
   }
@@ -368,8 +372,8 @@ function RecordScreen() {
         </View>
       </View>
 
-      {/* Map - show history OR recording route */}
-      {type!=='treadmill' && (
+      {/* Map - show only during recording (or history playback) */}
+      {type!=='treadmill' && (recording || showHistory) && (
         <OSMap
           ref={osMapRef}
           points={historyCoords || currentCoords}
@@ -390,12 +394,12 @@ function RecordScreen() {
         </TouchableOpacity>
       )}
 
-      {/* GPS indicator */}
-      {type!=='treadmill' && (
+      {/* GPS indicator - only show during recording */}
+      {type!=='treadmill' && recording && (
         <View style={C.gpsBar}>
           <View style={[C.gpsDot, gpsQ==='good'?C.gpsOn:gpsQ==='bad'?C.gpsBad:C.gpsOff]} />
           <Text style={C.gpsTxt}>
-            {gpsQ==='good' ? `定位良好 · ${gpsPts}轨迹点` : gpsQ==='bad' ? 'GPS信号弱' : 'GPS已关闭'}
+            {gpsQ==='good' ? `GPS采集 ${gpsPts} 个点` : gpsQ==='bad' ? 'GPS信号弱' : 'GPS已关闭'}
           </Text>
         </View>
       )}

@@ -150,7 +150,10 @@ function RecordScreen() {
   useEffect(() => {
     // Start GPS watch immediately when record screen mounts (non-treadmill modes)
     if (type !== 'treadmill') {
-      startGpsWatch();
+      reqLocation().then(granted => {
+        if (granted) startGpsWatch();
+        else setGpsQ('bad');
+      });
     }
     return () => {
       if (watchRef.current !== null) { Geolocation.clearWatch(watchRef.current); watchRef.current = null; }
@@ -170,7 +173,19 @@ function RecordScreen() {
         const ts = Date.now();
         kfRef.current.updateGPS(latitude, longitude, Math.max(gpsSpd??0,0), altitude??0, accuracy??10);
         setGpsQ(accuracy>20?'bad':'good');
-        // Only record during active recording
+
+        // Always update current location on map (even before recording starts)
+        const loc = { lat: latitude, lon: longitude };
+        setCurrentCoords(c => {
+          const last = c[c.length - 1];
+          // Only add if moved at least ~1m or it's the first point
+          if (!last) return [loc];
+          const d = haversine(last.lat, last.lon, latitude, longitude);
+          if (d < 0.0005) return c; // ~50cm filter
+          return [...c.slice(-99), loc];
+        });
+
+        // Recording-only logic
         if (!recording) return;
         const prev = ptsRef.current[ptsRef.current.length-1];
         if (prev) {
@@ -183,7 +198,6 @@ function RecordScreen() {
         const pt = { lat:latitude, lon:longitude, ts };
         ptsRef.current.push(pt);
         coordsRef.current = [...(coordsRef.current||[]).slice(-199), { lat:latitude, lon:longitude }];
-        setCurrentCoords(c=>[...c.slice(-199), { lat:latitude, lon:longitude }]);
         lastTsRef.current = ts;
         setGpsPts(c=>c+1);
       },
@@ -358,8 +372,12 @@ function RecordScreen() {
       {type!=='treadmill' && (
         <OSMap
           ref={osMapRef}
-          points={historyCoords || (recording ? currentCoords : [])}
-          currentLocation={historyCoords ? (historyCoords[historyCoords.length-1] || null) : (recording && currentCoords.length>0 ? currentCoords[currentCoords.length-1] : null)}
+          points={historyCoords || currentCoords}
+          currentLocation={
+            historyCoords
+              ? (historyCoords[historyCoords.length-1] || null)
+              : (currentCoords.length > 0 ? currentCoords[currentCoords.length-1] : null)
+          }
         />
       )}
 
